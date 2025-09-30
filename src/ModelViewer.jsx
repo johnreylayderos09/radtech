@@ -1,9 +1,14 @@
-import React, { Suspense, useEffect, useState } from "react"
-import { Canvas } from "@react-three/fiber"
-import { OrbitControls, useGLTF, useAnimations, Html } from "@react-three/drei"
-import Header from "./Components/Header"
+// src/ModelViewer.jsx
 
-/** Loader while model is being fetched */
+import React, { Suspense, useEffect, useRef, useState } from "react"
+import { Canvas, useThree } from "@react-three/fiber"
+import { OrbitControls, useGLTF, useAnimations, Html } from "@react-three/drei"
+import * as THREE from "three"
+import Header from "./Components/Header"
+import DialogBox from "./Components/Learn/Lesson_Handler"
+import { bodyPartInfo, bodyPartBounds, isPointInBounds, TechniqueMap, valueParts} from "./lib/BodyMap"
+
+// Simple loader
 function Loader() {
   return (
     <Html center>
@@ -12,212 +17,398 @@ function Loader() {
   )
 }
 
-/** Info dictionary for body parts */
-const bodyPartInfo = {
-  Head: { name: "Head", description: "Controls head and facial orientation." },
-  Face: { name: "Face", description: "Front part of the head." },
-  Neck: { name: "Neck", description: "Connects head to torso." },
-  Backhead: { name: "Back of Head", description: "Back side of the head, extending toward lower skull." },
-  Torso: { name: "Torso", description: "Controls upper body movements." },
-  "Left Arm": { name: "Left Arm", description: "Controls movements of the left arm." },
-  "Right Arm": { name: "Right Arm", description: "Controls movements of the right arm." },
-  "Left Hand": { name: "Left Hand", description: "Controls movements of the left hand." },
-  "Right Hand": { name: "Right Hand", description: "Controls movements of the right hand." },
-  "Left Shoulder": { name: "Left Shoulder", description: "Left shoulder area of the torso." },
-  "Right Shoulder": { name: "Right Shoulder", description: "Right shoulder area of the torso." },
-  "Left Rib": { name: "Left Rib", description: "Left rib cage area of the torso." },
-  "Right Rib": { name: "Right Rib", description: "Right rib cage area of the torso." },
-  Abdomen: { name: "Abdomen", description: "Lower front torso region." },
-  Back: { name: "Back", description: "Back part of the body." },
-  Groin: { name: "Groin", description: "Area between the abdomen and thighs." },
-  "Left Thigh": { name: "Left Thigh", description: "Upper part of the left leg." },
-  "Right Thigh": { name: "Right Thigh", description: "Upper part of the right leg." },
-  "Left Leg": { name: "Left Leg", description: "Lower part of the left leg." },
-  "Right Leg": { name: "Right Leg", description: "Lower part of the right leg." },
-  "Left Feet": { name: "Left Foot", description: "Controls movements of the left foot." },
-  "Right Feet": { name: "Right Foot", description: "Controls movements of the right foot." },
-  Unknown: { name: "Unknown Part", description: "No specific information available for this part." },
-}
-
-/** Coordinate bounds for different regions */
-const bodyPartBounds = {
-  
-  HeadRegion: {
-  Face: { x: [-0.18, 0.18], y: [1.70, 2.07], z: [0.04, 0.17] },
-  Backhead: { x: [-0.2, 0.2], y: [1.55, 2.2], z: [-0.35, -0.001] },
-  Neck: { x: [-0.12, 0.12], y: [1.54, 1.70], z: [-0.03, 0.09] },
-  },
-
-  LeftArmAndHand: { x: [1.29, 1.6], y: [0.74, 0.96], z: [-0.2, 0.06] },
-  RightArmAndHand: { x: [-1.6, -1.25], y: [0.75, 1.0], z: [-0.2, 0.06] },
-  
-  TorsoAndBack: {
-    "Left Shoulder": { x: [0.2, 0.5], y: [1.3, 1.6], z: [-0.03, 0.1] },
-    "Right Shoulder": { x: [-0.62, -0.28], y: [1.18, 1.62], z: [-0.27, 0.27] },
-    "Left Rib": { x: [0.07, 0.35], y: [1.0, 1.42], z: [0.06, 0.25] },
-    "Right Rib": { x: [-0.35, -0.01], y: [0.85, 1.5], z: [0.1, 0.22] },
-    Abdomen: { x: [-0.3, 0.3], y: [0.5, 0.9], z: [0.05, 0.22] },
-    Back: { x: [-0.3, 0.3], y: [0.6, 1.4], z: [-0.4, -0.05] },
-  },
-
-  Legs: {
-    "Left Thigh": { x: [0.01, 0.55], y: [-0.35, 0.2], z: [-0.15, 0.25] },
-    "Right Thigh": { x: [-0.55, -0.05], y: [-0.35, 0.2], z: [-0.2, 0.25] }, 
-    "Left Leg":  { x: [0.1, 0.4],  y: [-1.3, -0.4], z: [-0.2, 0.2] },
-    "Right Leg": { x: [-0.4, -0.1], y: [-1.3, -0.4], z: [-0.2, 0.2] },
-    "Left Feet": { x: [0.1, 0.4],  y: [-1.6, -1.3], z: [-0.35, 0.2] },
-    "Right Feet": { x: [-0.4, -0.1], y: [-1.6, -1.3], z: [-0.35, 0.2] },
+// Camera rig helper
+function useCameraRig() {
+  const { camera, controls } = useThree((s) => ({ camera: s.camera, controls: s.controls }))
+  return {
+    camera,
+    controls,
+    setControlsEnabled(v) { if (controls) controls.enabled = v },
+    setPanEnabled(v) { if (controls) controls.enablePan = v },
+    reset() { if (controls) controls.reset() },
   }
 }
-const epsilon = 0.001
-const margin = 0.05
 
-/** Utility: check if point lies in bounds */
-const isPointInBounds = (point, bounds, label = "Part") => {
-  const insideX = point.x + epsilon >= bounds.x[0] - margin && point.x - epsilon <= bounds.x[1] + margin
-  const insideY = point.y + epsilon >= bounds.y[0] - margin && point.y - epsilon <= bounds.y[1] + margin
-  const insideZ = point.z + epsilon >= bounds.z[0] - margin && point.z - epsilon <= bounds.z[1] + margin
+// Fit camera to a box
+function fitCameraToBox(camera, controls, box, opts = {}) {
+  const { fillScale = 0.95, offsetUp = 0.06, offsetForward = 0.0 } = opts
+  const center = box.getCenter(new THREE.Vector3())
+  const size = box.getSize(new THREE.Vector3())
 
-  console.log(`🔎 Checking ${label}: X=${point.x.toFixed(3)}, Y=${point.y.toFixed(3)}, Z=${point.z.toFixed(3)} → ${insideX && insideY && insideZ}`)
-  return insideX && insideY && insideZ
+  const vFOV = THREE.MathUtils.degToRad(camera.fov)
+  const hFOV = 2 * Math.atan(Math.tan(vFOV / 2) * camera.aspect)
+
+  const distV = (size.y * 0.5) / Math.tan(vFOV / 2)
+  const distH = (size.x * 0.5) / Math.tan(hFOV / 2)
+  const distance = Math.max(distV, distH) * (1 / fillScale)
+
+  const forward = new THREE.Vector3()
+  camera.getWorldDirection(forward)
+  const newPos = center.clone().sub(forward.multiplyScalar(distance))
+  camera.position.copy(newPos)
+
+  const up = new THREE.Vector3(0, 1, 0)
+  const compTarget = center.clone().addScaledVector(up, offsetUp).addScaledVector(forward.normalize(), offsetForward)
+  if (controls) { controls.target.copy(compTarget); controls.update() } else { camera.lookAt(compTarget) }
+
+  const camToFarEdge = distance + size.length()
+  camera.near = Math.max(0.01, distance - size.length() * 2)
+  camera.far = Math.max(camera.far, camToFarEdge * 2)
+  camera.updateProjectionMatrix()
+}
+
+// Build Box3 from ranges
+function boxFromRanges(r) {
+  return new THREE.Box3(
+    new THREE.Vector3(r.x[0], r.y[0], r.z[0]),
+    new THREE.Vector3(r.x[1], r.y[1], r.z[1])
+  )
 }
 
 /** Main Model */
-function Model({ scale = 1 }) {
+function Model({ scale = 1, tiltZ = 0, tiltX = 0, onSelectPart }) {
   const { scene, animations } = useGLTF("/models/base.glb")
   const { actions } = useAnimations(animations, scene)
 
-  const [selectedPart, setSelectedPart] = useState(null)
-  const [selectedPosition, setSelectedPosition] = useState([0, 0, 0])
+  const headRef = useRef(null)
+  const initialHeadRotation = useRef(new THREE.Euler(0, 0, 0))
+  const { camera, controls, setControlsEnabled, setPanEnabled } = useCameraRig()
 
-  /** Auto-play first animation */
   useEffect(() => {
     if (actions && Object.keys(actions).length > 0) {
       actions[Object.keys(actions)[0]].play()
     }
   }, [actions])
 
-  /** Handle clicks */
+  useEffect(() => {
+    const candidates = ["Head", "CC_Base_Head", "head", "mixamorigHead", "Armature_Head", "HeadMesh"]
+    for (const n of candidates) {
+      const obj = scene.getObjectByName(n)
+      if (obj) {
+        headRef.current = obj
+        initialHeadRotation.current = obj.rotation.clone()
+        break
+      }
+    }
+  }, [scene])
+
+  useEffect(() => {
+    const node = headRef.current
+    if (!node) return
+    node.rotation.set(
+      initialHeadRotation.current.x + tiltX,
+      initialHeadRotation.current.y,
+      initialHeadRotation.current.z + tiltZ
+    )
+  }, [tiltX, tiltZ])
+
+  const focusHead = () => {
+    const headBox = boxFromRanges(bodyPartBounds.HeadRegion.Head)
+    setControlsEnabled(false)
+    setPanEnabled(false)
+    fitCameraToBox(camera, controls, headBox, { fillScale: 0.5 })
+    requestAnimationFrame(() => { setControlsEnabled(true) })
+    onSelectPart("Head")
+  }
+
+  const focusGeneric = (clickedObject, guessedPart) => {
+    const box = new THREE.Box3().setFromObject(clickedObject)
+    setControlsEnabled(false)
+    setPanEnabled(false)
+    fitCameraToBox(camera, controls, box, { fillScale: 1.0 })
+    requestAnimationFrame(() => { setControlsEnabled(true) })
+    onSelectPart(guessedPart)
+  }
+
   const handlePointerDown = (e) => {
     e.stopPropagation()
     const meshName = e.object.name
-    const clickedPoint = e.point
-
-    console.log("🟢 Clicked Mesh:", meshName, "📍 Point:", clickedPoint)
-
+    const p = e.point
     let guessedPart = "Unknown"
 
-    if (
-      meshName.includes("CC_Base_Body_1") ||
-      meshName.includes("CC_Base_Body_6") ||
-      meshName.includes("Male_Brow_2_1") ||
-      meshName.includes("Male_Brow_2_2")
-    ) {
-      for (const part of ["Face", "Backhead", "Neck"]) {
-        if (isPointInBounds(clickedPoint, bodyPartBounds.HeadRegion[part], part)) {
-          guessedPart = part
-          break
+    try {
+      if (meshName.includes("CC_Base_Body_1") || meshName.includes("CC_Base_Body_6") ||
+          meshName.includes("Male_Brow_2_1") || meshName.includes("Male_Brow_2_2")) {
+        const bounds = bodyPartBounds.HeadRegion?.Head
+        if (bounds && isPointInBounds(p, bounds, "Head")) guessedPart = "Head"
+      } else if (meshName.includes("CC_Base_Body_2") || meshName.includes("CC_Base_Body_1")) {
+        for (const part of ["Left Rib", "Right Rib", "Abdomen", "Back"]) {
+          const bounds = bodyPartBounds.TorsoAndBack?.[part]
+          if (bounds && isPointInBounds(p, bounds, part)) { guessedPart = part; break }
+        }
+      } else {
+        for (const part of Object.keys(bodyPartBounds.Legs)) {
+          const bounds = bodyPartBounds.Legs?.[part]
+          if (bounds && isPointInBounds(p, bounds, part)) { guessedPart = part; break }
         }
       }
-    } else if (meshName.includes("CC_Base_Body_2") || meshName.includes("CC_Base_Body_1")) {
-      for (const part of ["Left Rib", "Right Rib", "Abdomen", "Back"]) {
-        if (isPointInBounds(clickedPoint, bodyPartBounds.TorsoAndBack[part], part)) {
-          guessedPart = part
-          break
-        }
-      }
-    } else if (meshName.includes("CC_Base_Body_3") || meshName.includes("CC_Base_Body_5")) {
-      if (isPointInBounds(clickedPoint, bodyPartBounds.TorsoAndBack["Left Shoulder"], "Left Shoulder")) {
-        guessedPart = "Left Shoulder"
-      } else if (isPointInBounds(clickedPoint, bodyPartBounds.TorsoAndBack["Right Shoulder"], "Right Shoulder")) {
-        guessedPart = "Right Shoulder"
-      } else if (isPointInBounds(clickedPoint, bodyPartBounds.LeftArmAndHand, "Left Hand")) {
-        guessedPart = "Left Hand"
-      } else if (isPointInBounds(clickedPoint, bodyPartBounds.RightArmAndHand, "Right Hand")) {
-        guessedPart = "Right Hand"
-      }
-    }
-    else if (meshName.includes("Boxer")) {
-      guessedPart = "Groin"
+    } catch (err) {
+      console.warn("⚠️ Error while guessing body part:", err)
     }
 
-    else if (meshName.includes("CC_Base_Body_4")) {
-      if (isPointInBounds(clickedPoint, bodyPartBounds.Legs["Left Thigh"], "Left Thigh")) {
-        guessedPart = "Left Thigh"
-      } else if (isPointInBounds(clickedPoint, bodyPartBounds.Legs["Right Thigh"], "Right Thigh")) {
-        guessedPart = "Right Thigh"
-      }
-      else if (isPointInBounds(clickedPoint, bodyPartBounds.Legs["Left Leg"], "Left Leg")) {
-        guessedPart = "Left Leg"
-      } else if (isPointInBounds(clickedPoint, bodyPartBounds.Legs["Right Leg"], "Right Leg")) {
-        guessedPart = "Right Leg"
-      }
-      else if (isPointInBounds(clickedPoint, bodyPartBounds.Legs["Left Feet"], "Left Foot")) {
-        guessedPart = "Left Feet"
-      } else if (isPointInBounds(clickedPoint, bodyPartBounds.Legs["Right Feet"], "Right Foot")) {
-        guessedPart = "Right Feet"
-      }
-    }
-
-
-    setSelectedPart(guessedPart)
-    setSelectedPosition([clickedPoint.x, clickedPoint.y + 0.3, clickedPoint.z])
+    if (guessedPart === "Head") focusHead()
+    else focusGeneric(e.object, guessedPart)
   }
 
-  return (
-    <>
-      <primitive object={scene} scale={scale} position={[0, -2.15, 0]} onPointerDown={handlePointerDown} />
+  return <primitive object={scene} scale={2.4} position={[0, -2.15, 0]} onPointerDown={handlePointerDown} />
+}
 
-      {selectedPart && (
-        <Html position={selectedPosition} distanceFactor={10}>
-          <div
+/** Main Viewer */
+export default function ModelViewer() {
+  const [tiltZ, setTiltZ] = useState(0)
+  const [tiltX, setTiltX] = useState(0)
+  const [selectedPart, setSelectedPart] = useState(null)
+  const [showHeadControls, setShowHeadControls] = useState(false)
+  const [showLearnDialog, setShowLearnDialog] = useState(false)
+  const [expandedTechniques, setExpandedTechniques] = React.useState([]);
+
+
+  const controlsRef = useRef(null)
+  const initialCam = useRef(null)
+
+  const step = (5 * Math.PI) / 180
+  const maxZ = (45 * Math.PI) / 180
+  const maxX = (45 * Math.PI) / 180
+
+  const resetZ = () => setTiltZ(0)
+  const resetX = () => setTiltX(0)
+
+  const degZ = Math.round((tiltZ * 180) / Math.PI)
+  const degX = Math.round((tiltX * 180) / Math.PI)
+
+  useEffect(() => {
+    const controls = controlsRef.current
+    if (controls && !initialCam.current) {
+      const cam = controls.object
+      initialCam.current = {
+        position: cam.position.clone(),
+        target: controls.target.clone(),
+        near: cam.near,
+        far: cam.far,
+        fov: cam.fov,
+      }
+      controls.saveState()
+    }
+  }, [])
+
+  // Your toggle function
+  const toggleTechnique = (technique) => {
+    setExpandedTechniques(prev =>
+      prev.includes(technique)
+        ? prev.filter(t => t !== technique)
+        : [...prev, technique]
+    );
+  };
+
+return (
+  <div style={{ width: "100vw", height: "100vh", background: "white", display: "flex", flexDirection: "column" }}>
+    <Header />
+    <div style={{ flex: 1, position: "relative" }}>
+      <Canvas shadows camera={{ position: [0, 1.5, 5], fov: 50 }}>
+        <ambientLight intensity={0.7} />
+        <directionalLight position={[5, 10, 5]} intensity={1} castShadow />
+        <Suspense fallback={<Loader />}>
+          <Model scale={2.4} tiltZ={tiltZ} tiltX={tiltX} onSelectPart={setSelectedPart} />
+        </Suspense>
+        <OrbitControls makeDefault ref={controlsRef} />
+      </Canvas>
+
+      <DialogBox
+        isOpen={showLearnDialog}
+        onClose={() => setShowLearnDialog(false)}
+        title={`Techniques about positioning of ${bodyPartInfo[selectedPart]?.name || "Body Part"}`}
+        // If DialogBox supports style prop, you can add style={{ maxWidth: "900px", width: "100%" }} here
+      >
+        {/* Increased width wrapper inside dialog */}
+        <div
+          style={{
+            width: "100%",
+            maxWidth: "900px",       // Increased max width here
+            margin: "0 auto",
+            padding: "8px 16px",
+            overflowX: "auto",       // Prevent horizontal scrollbars
+          }}
+        >
+          <ul
             style={{
-              background: "rgba(0, 0, 0, 0.8)",
-              padding: "8px",
-              borderRadius: "6px",
-              color: "white",
-              fontSize: "13px",
-              minWidth: "180px",
-              border: "1px solid white",
+              display: "grid",
+              gridTemplateColumns: "repeat(1, 1fr)", // 3 columns layout
+              gap: "12px 16px",
+              padding: 0,
+              listStyle: "none",
+              margin: 0,
+              textAlign: "center",
+              alignItems: "center",
             }}
           >
-            <strong>{bodyPartInfo[selectedPart]?.name}</strong>
-            <p>{bodyPartInfo[selectedPart]?.description}</p>
-            <button
-              style={{ marginTop: "5px", padding: "4px 8px", cursor: "pointer", background: "#222", color: "white" }}
-              onClick={() => setSelectedPart(null)}
-            >
-              Close
-            </button>
+            {TechniqueMap.Head.map((technique, idx) => {
+              const isExpanded = expandedTechniques.includes(technique);
+
+              return (
+                <li
+                  key={idx}
+                  style={{
+                    border: "1px solid #ddd",
+                    borderRadius: 4,
+                    background: "#f8f8f8",
+                    cursor: "pointer",
+                    userSelect: "none",
+                    padding: "8px 12px",
+                    gridColumn: "auto",
+                    minWidth: "180px",
+                    boxSizing: "border-box",
+                    wordBreak: "break-word",
+                    overflow: "visible",
+                  }}
+                  onClick={() => toggleTechnique(technique)}
+                >
+                  <strong>{technique}</strong>
+                  {isExpanded && (
+                    <ul
+                      style={{
+                        listStyle: "disc",
+                        paddingLeft: "20px",
+                        marginTop: "6px",
+                        marginBottom: "0",
+                        fontSize: "14px",
+                        background: "#fff",
+                        borderRadius: "4px",
+                      }}
+                    >
+                      {valueParts[technique]?.map((lesson, lessonIdx) => (
+                        <li key={lessonIdx} style={{ marginBottom: 4 }}>
+                          {lesson}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+      </DialogBox>
+
+      {/* Overlay Info Box */}
+      {selectedPart && (
+        <div
+          style={{
+            position: "absolute",
+            top: 20,
+            left: "50%",
+            transform: "translateX(-50%)",
+            background: "rgba(0,0,0,0.85)",
+            padding: "16px",
+            borderRadius: "8px",
+            color: "white",
+            minWidth: "320px",
+            maxWidth: "480px",
+            textAlign: "center",
+            border: "1px solid #555",
+            boxShadow: "0 0 12px rgba(0,0,0,0.8)",
+            zIndex: 10,
+          }}
+        >
+          <div style={{ fontWeight: 700, marginBottom: 8 }}>{bodyPartInfo[selectedPart]?.name}</div>
+          <p style={{ margin: 0, fontSize: "14px", opacity: 0.9 }}>
+            {bodyPartInfo[selectedPart]?.description}
+          </p>
+          <div
+            style={{
+              display: "flex",
+              gap: 12,
+              marginTop: 14,
+              justifyContent: "center",
+              flexWrap: "wrap",
+            }}
+          >
+            {["Learn", "Evaluate", "Close"].map((label) => {
+              let onClick;
+              let bgColor;
+              if (label === "Learn") {
+                onClick = () => setShowLearnDialog(true);
+                bgColor = "#2a72ff";
+              } else if (label === "Evaluate") {
+                onClick = () => alert(`Evaluate ${bodyPartInfo[selectedPart]?.name}`);
+                bgColor = "#00b894";
+              } else if (label === "Close") {
+                onClick = () => {
+                  setSelectedPart(null);
+                  setShowHeadControls(false);
+                  const controls = controlsRef.current;
+                  if (!controls) return;
+                  const cam = controls.object;
+                  controls.reset();
+                  if (initialCam.current) {
+                    cam.position.copy(initialCam.current.position);
+                    controls.target.copy(initialCam.current.target);
+                    cam.near = initialCam.current.near;
+                    cam.far = initialCam.current.far;
+                    cam.fov = initialCam.current.fov;
+                    cam.updateProjectionMatrix();
+                    controls.update();
+                  }
+                };
+                bgColor = "#444";
+              }
+              return (
+                <button
+                  key={label}
+                  onClick={onClick}
+                  style={{
+                    padding: "8px 16px",
+                    minWidth: "90px",
+                    backgroundColor: bgColor,
+                    color: "white",
+                    border: "none",
+                    borderRadius: 6,
+                    cursor: "pointer",
+                    fontWeight: "600",
+                    userSelect: "none",
+                    flex: "1 1 auto",
+                    textAlign: "center",
+                  }}
+                >
+                  {label}
+                </button>
+              );
+            })}
           </div>
-        </Html>
+
+          {/* Head controls popup */}
+          {showHeadControls && selectedPart === "Head" && (
+            <div
+              style={{
+                marginTop: 20,
+                padding: 12,
+                background: "rgba(255,255,255,0.1)",
+                borderRadius: 6,
+                display: "flex",
+                flexDirection: "column",
+                gap: 8,
+                userSelect: "none",
+              }}
+            >
+              <div>Front tilt (X): {degX}°</div>
+              <div style={{ display: "flex", gap: 8, justifyContent: "center" }}>
+                <button onClick={() => setTiltX((v) => Math.max(v - step, -maxX))}>Look Up −5°</button>
+                <button onClick={resetX}>Reset</button>
+                <button onClick={() => setTiltX((v) => Math.min(v + step, maxX))}>Look Down +5°</button>
+              </div>
+              <div>Side tilt (Z): {degZ}°</div>
+              <div style={{ display: "flex", gap: 8, justifyContent: "center" }}>
+                <button onClick={() => setTiltZ((v) => Math.max(v - step, -maxZ))}>Tilt Left −5°</button>
+                <button onClick={resetZ}>Reset</button>
+                <button onClick={() => setTiltZ((v) => Math.min(v + step, maxZ))}>Tilt Right +5°</button>
+              </div>
+            </div>
+          )}
+        </div>
       )}
-    </>
-  )
-}
-
-/** Viewer Wrapper */
-export default function ModelViewer() {
-  return (
-    <div style={{ width: "100vw", height: "100vh", background: "white", display: "flex", flexDirection: "column" }}>
-      
-      {/* Header always on top */}
-      <Header />
-
-      {/* 3D Canvas takes remaining space */}
-      <div style={{ flex: 1 }}>
-        <Canvas shadows camera={{ position: [0, 1.5, 5], fov: 50 }}>
-          <ambientLight intensity={0.7} />
-          <directionalLight position={[5, 10, 5]} intensity={1} castShadow />
-          <Suspense fallback={<Loader />}>
-            <Model scale={2.4} />
-          </Suspense>
-
-          {/* <OrbitControls makeDefault zoomToCursor={true} /> */}
-          
-          <OrbitControls/>
-        </Canvas>
-      </div>
     </div>
-  )
+  </div>
+);
+
 }
+
+
