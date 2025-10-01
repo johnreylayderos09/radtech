@@ -150,7 +150,33 @@ function Model({ scale = 1, tiltZ = 0, tiltX = 0, onSelectPart }) {
     else focusGeneric(e.object, guessedPart)
   }
 
-  return <primitive object={scene} scale={2.4} position={[0, -2.15, 0]} onPointerDown={handlePointerDown} />
+  const [modelscale, setmodelScale] = useState(2.4);
+  const [modelPOS, setmodelPOS] = useState([0, -2.30, 0]);
+  const [wasMobile, setWasMobile] = useState(window.innerWidth <= 768); // Track previous state
+
+  useEffect(() => {
+    const handleResize = () => {
+      const isMobile = window.innerWidth <= 768;
+
+      // Update scale and position
+      setmodelScale(isMobile ? 1.9 : 2.4);
+      setmodelPOS(isMobile ? [0, -1.80, 0] : [0, -2.30, 0]);
+
+      // Reload page only when exiting mobile view
+      if (wasMobile && !isMobile) {
+        window.location.reload();
+      }
+
+      setWasMobile(isMobile); // Update tracking state
+    };
+
+    handleResize(); // Run once on mount
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, [wasMobile]);
+
+
+  return <primitive object={scene} scale={modelscale} position={modelPOS} onPointerDown={handlePointerDown} />
 }
 
 /** Main Viewer */
