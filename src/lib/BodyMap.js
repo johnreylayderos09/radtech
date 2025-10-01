@@ -95,7 +95,7 @@ export const TechniqueMap = {
 }
 
 export const valueParts = {
-  "Skull Projection" : ["PA Projection","AP Projection", "Modified Caldwell Method", "AP Axial Projection", "Original Caldwell", "Lateral Projection", "Crosstable Lateral", "Towne/Altschul/Grashey/Chamberlaine Method (AP Axial Projection)", "Haas Method", "Schuller/Pfeiffer Method", "Shuller Method", "Lysholm Method", "Valdini Method"],
+  "Skull Projection" : ["PA Projection","AP Projection", "Modified Caldwell Method", "AP Axial Projection", "Original Caldwell", "Lateral Projection", "Crosstable Lateral", "TAGC Method A (AP Axial Projection)","TAGC Method B (AP Axial Projection)", "Haas Method", "Schuller/Pfeiffer Method", "Shuller Method", "Lysholm Method", "Valdini Method"],
 
   "Sella Turcica" : ["Lateral Projection","Towne Method","Haas Method","PA Projection"],
 

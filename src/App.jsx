@@ -1,5 +1,5 @@
 
-import ModelViewer from './ModelViewer'
+import ModelViewer from './ModelViewer/ModelViewer'
 
 function App() {
   return (

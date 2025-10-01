@@ -1,4 +1,3 @@
-import React from "react"
 
 export default function DialogBox({ isOpen, onClose, title, children }) {
   if (!isOpen) return null
